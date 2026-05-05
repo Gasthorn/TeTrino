@@ -1,0 +1,325 @@
+================================================================================
+            DOCUMENTATION DU PROJET TeTrino
+            Fichiers : tetris.py  et  OneBITalinoAcquisitionExample.py
+================================================================================
+
+
+################################################################################
+# 1)  tetris.py  —  Jeu Tetris en Pygame
+################################################################################
+
+Description générale
+--------------------
+Implémentation complète d'un Tetris en Pygame. Les contrôles sont centralisés
+dans la classe InputHandler afin de permettre, à terme, de remplacer le clavier
+par les capteurs BITalino (EMG, ECG, etc.).
+
+Lancement :
+    python tetris.py
+
+
+--------------------------------------------------------------------------------
+1.1  Constantes globales
+--------------------------------------------------------------------------------
+CELL, COLS, ROWS, PREVIEW : géométrie de la grille (cellules de 32 px,
+                            grille de 10 × 20).
+PANEL_W, WIN_W, WIN_H     : dimensions de la fenêtre (grille + panneau latéral).
+FPS                       : 60 images/seconde.
+BLACK … ORANGE            : palette de couleurs rétro-arcade.
+PIECES                    : dictionnaire des 7 tetrominos (I, O, T, S, Z, J, L)
+                            avec leur forme matricielle et leur couleur.
+LINE_SCORES               : barème de points selon le nb de lignes effacées.
+
+
+--------------------------------------------------------------------------------
+1.2  Fonctions utilitaires
+--------------------------------------------------------------------------------
+drop_interval(level: int) -> int
+    Calcule l'intervalle (en ms) entre deux descentes automatiques.
+    Plus le niveau est élevé, plus la pièce tombe vite (min : 100 ms).
+
+rotate_matrix(matrix)
+    Effectue une rotation 90° dans le sens horaire d'une matrice.
+    Utilisée pour faire pivoter une pièce.
+
+draw_cell(surface, x, y, color, cell_size, alpha)
+    Dessine une cellule avec un effet 3D léger (reflet en haut-gauche,
+    ombre en bas-droite). Le paramètre alpha permet un rendu semi-transparent
+    (utilisé pour la « ghost piece »).
+
+
+--------------------------------------------------------------------------------
+1.3  Classe Piece  —  Une pièce (tetromino) en jeu
+--------------------------------------------------------------------------------
+__init__(name=None)
+    Crée une pièce. Si name est None, choisit aléatoirement parmi PIECES.
+    Initialise sa couleur, sa forme et sa position de départ
+    (centrée en haut de la grille).
+
+rotated()
+    Renvoie la forme tournée de 90° (sans modifier la pièce).
+    Sert à tester si une rotation est légale avant de l'appliquer.
+
+cells(shape=None, dx=0, dy=0)
+    Renvoie la liste des coordonnées (x, y) des cellules occupées par la pièce,
+    éventuellement décalées de (dx, dy). Permet de tester un mouvement
+    hypothétique sans modifier la pièce.
+
+
+--------------------------------------------------------------------------------
+1.4  Classe Grid  —  La grille de jeu
+--------------------------------------------------------------------------------
+__init__()
+    Crée une grille vide de ROWS × COLS (chaque case = None ou couleur).
+
+is_valid(cells)
+    Vérifie qu'une liste de cellules :
+      - reste dans les limites de la grille,
+      - ne chevauche pas une cellule déjà occupée.
+    C'est le test central appelé avant tout déplacement / rotation.
+
+lock(piece)
+    Verrouille la pièce en inscrivant ses cellules dans la grille
+    (la pièce devient une partie du décor).
+
+clear_lines()
+    Détecte les lignes complètes, les supprime et insère des lignes vides
+    en haut. Renvoie le nombre de lignes effacées (utile pour le score).
+
+draw(surface)
+    Dessine le fond de grille (cases sombres) puis toutes les cellules
+    déjà verrouillées avec draw_cell().
+
+is_game_over()
+    Retourne True si une cellule de la ligne 0 est occupée
+    (= nouvelle pièce ne peut plus apparaître).
+
+
+--------------------------------------------------------------------------------
+1.5  Classe InputHandler  —  Centralisation des entrées (point BITalino)
+--------------------------------------------------------------------------------
+But : isoler toute la logique de lecture des contrôles. Pour brancher BITalino
+      il suffira de remplacer les méthodes get_* / action_* par des lectures
+      de capteurs (cf. exemple en docstring).
+
+__init__()
+    Initialise le dictionnaire interne de touches.
+
+update(events)
+    À appeler une fois par frame avec la liste pygame.event.get().
+    Mémorise les events ponctuels et l'état des touches maintenues.
+
+action_rotate()      -> bool : True si UP vient d'être pressée.
+action_hard_drop()   -> bool : True si ESPACE vient d'être pressée.
+action_pause()       -> bool : True si P vient d'être pressée.
+action_restart()     -> bool : True si R vient d'être pressée.
+    (toutes basées sur des events KEYDOWN — un seul déclenchement par appui)
+
+get_move()           -> int  : -1 (gauche), +1 (droite), 0 (rien).
+get_soft_drop()      -> bool : True tant que ↓ est maintenue.
+    (basées sur pygame.key.get_pressed() — état continu)
+
+
+--------------------------------------------------------------------------------
+1.6  Classe Tetris  —  Boucle de jeu et rendu
+--------------------------------------------------------------------------------
+__init__(screen)
+    Stocke la surface, instancie l'InputHandler, charge les polices,
+    puis appelle reset() pour démarrer une partie.
+
+reset()
+    Réinitialise la grille, la pièce courante, la pièce suivante,
+    le score, les lignes, le niveau et tous les timers (drop, DAS).
+
+_ghost_y()
+    Calcule de combien de cases la pièce courante peut descendre avant
+    collision. Sert au rendu de la « ghost piece » et au hard drop.
+
+_lock_piece()
+    Verrouille la pièce courante, efface les lignes pleines, ajoute le
+    score (multiplié par le niveau), met à jour le niveau, puis fait
+    apparaître la pièce suivante. Détecte le game over.
+
+_try_move(dx, dy, shape)
+    Tente un déplacement et/ou changement de forme. Si le mouvement est
+    valide via Grid.is_valid(), il est appliqué et renvoie True.
+    Sinon la pièce reste inchangée et renvoie False.
+
+update(dt_ms, events)
+    Appelée chaque frame. Enchaîne :
+      1. Mise à jour de l'InputHandler.
+      2. Restart / Pause si demandé.
+      3. Rotation, hard drop.
+      4. Mouvement latéral avec système DAS (delay-auto-shift) :
+         premier appui immédiat, répétition après _move_delay (150 ms),
+         puis tous les _move_repeat (50 ms).
+      5. Descente automatique ou soft drop ; verrouillage si la pièce
+         touche le sol.
+
+draw()
+    Dessine successivement : fond, grille, ghost piece, pièce courante,
+    bordure, panneau latéral, et superposition pause/game over.
+    Termine par pygame.display.flip().
+
+_draw_panel(px)
+    Dessine le panneau de droite : titre TETRIS, aperçu de la pièce
+    suivante, score / lignes / niveau, et rappel des contrôles.
+
+_label(x, y, text)
+    Petit raccourci pour afficher un texte gris (titres de section).
+
+_draw_preview(px, py)
+    Affiche dans un encadré la pièce suivante (next_piece), centrée.
+
+_overlay(title, subtitle)
+    Affiche un voile sombre semi-transparent avec un titre et un
+    sous-titre — utilisé pour PAUSE et GAME OVER.
+
+
+--------------------------------------------------------------------------------
+1.7  Point d'entrée
+--------------------------------------------------------------------------------
+main()
+    pygame.init() → crée la fenêtre → instancie Tetris → boucle infinie :
+      - clock.tick(FPS) renvoie le dt en millisecondes,
+      - pygame.event.get() récupère les évènements,
+      - traitement de QUIT → pygame.quit() + sys.exit(),
+      - game.update(dt, events) puis game.draw().
+
+if __name__ == '__main__': main()
+
+
+
+################################################################################
+# 2)  OneBITalinoAcquisitionExample.py  —  Acquisition BITalino
+################################################################################
+
+Description générale
+--------------------
+Exemple d'acquisition de signaux depuis un BITalino via l'API PLUX.
+Le script ouvre le device en Bluetooth, lance l'acquisition dans un thread
+dédié et trace en temps réel les 6 ports actifs avec matplotlib.
+
+Lancement :
+    python OneBITalinoAcquisitionExample.py [adresse] [fréquence] [ports] [fenêtre_s]
+Tous les arguments sont optionnels (valeurs par défaut dans le code).
+
+
+--------------------------------------------------------------------------------
+2.1  Configuration de l'API PLUX (en haut du fichier)
+--------------------------------------------------------------------------------
+osDic
+    Dictionnaire qui associe le système d'exploitation (Darwin/Linux/Windows)
+    au sous-dossier de l'API PLUX correspondant à la version de Python.
+
+Bloc Darwin (macOS)
+    subprocess.Popen("sw_vers", ...)
+        Récupère la version exacte de macOS pour ajuster le chemin de l'API
+        (cas particulier de Monterey, qui exige Python ≥ 3.10).
+
+sys.path.append(f"PLUX-API-Python3/{osDic[platform.system()]}")
+    Ajoute dynamiquement le dossier de l'API PLUX au PYTHONPATH afin
+    de pouvoir faire `import plux`.
+
+import plux
+    Charge la bibliothèque native PLUX (binding C++ pour BITalino).
+
+
+--------------------------------------------------------------------------------
+2.2  Classe NewDevice (hérite de plux.SignalsDev)
+--------------------------------------------------------------------------------
+Représente le BITalino. Hérite de plux.SignalsDev pour bénéficier des méthodes
+bas niveau (start, loop, stop, close…).
+
+__init__(address)
+    plux.SignalsDev.__init__(address)
+        Ouvre la connexion Bluetooth/USB avec le device à l'adresse donnée.
+    Initialise :
+        - frequency  : fréquence d'échantillonnage (Hz),
+        - buffers    : un deque circulaire par port (rempli par onRawFrame),
+        - lock       : threading.Lock() pour protéger les buffers
+                       (acquisition dans un thread, affichage dans un autre),
+        - stop_flag  : drapeau utilisé pour stopper proprement la boucle
+                       d'acquisition.
+
+onRawFrame(nSeq, data)
+    Callback appelé automatiquement par PLUX à chaque échantillon reçu.
+    - nSeq : numéro de séquence,
+    - data : tuple de valeurs (une par port actif).
+    Sous protection du lock, ajoute chaque valeur dans son buffer (le deque
+    écrase la donnée la plus ancienne quand maxlen est atteint).
+    Retourne stop_flag : si True, l'acquisition s'arrête.
+
+
+--------------------------------------------------------------------------------
+2.3  Fonction principale  exampleAcquisition(...)
+--------------------------------------------------------------------------------
+Signature :
+    exampleAcquisition(
+        address="BTH98:D3:51:FE:87:0E",
+        frequency=1000,
+        active_ports=[1, 2, 3, 4, 5, 6],
+        window_seconds=5,
+    )
+
+Étapes et appels :
+
+1. device = NewDevice(address)
+       Ouvre la connexion BITalino.
+
+2. device.frequency = int(frequency)
+   window_size       = device.frequency * window_seconds
+   device.buffers    = [deque([0]*window_size, maxlen=window_size) ...]
+       Préalloue un buffer circulaire par port, dimensionné pour la fenêtre
+       d'affichage (par défaut 5 s × 1000 Hz = 5000 échantillons).
+
+3. device.start(frequency, active_ports, 16)
+       Lance l'acquisition côté BITalino :
+         - frequency    : Hz d'échantillonnage,
+         - active_ports : ports analogiques à lire,
+         - 16           : résolution en bits.
+
+4. acquisition_thread = threading.Thread(target=device.loop, daemon=True)
+   acquisition_thread.start()
+       Lance device.loop() dans un thread séparé. loop() bloque tant que
+       onRawFrame ne renvoie pas True ; il faut donc un thread pour ne pas
+       figer matplotlib.
+
+5. plt.subplots(len(active_ports), 1, sharex=True, ...)
+       Crée une figure avec un sous-graphe par port (axes X partagés).
+       Configure chaque axe : ylabel "Port n", ylim 0–1024 (résolution
+       BITalino 10 bits → 0..1023, marge de sécurité), grille.
+
+6. FuncAnimation(fig, update, interval=50, blit=True, cache_frame_data=False)
+       Anime la figure : appelle update() toutes les 50 ms.
+
+   update(_frame)  (closure interne)
+       Sous lock, copie les buffers en snapshots ; met à jour les lignes
+       matplotlib avec line.set_ydata(data) ; renvoie la liste des lignes
+       (nécessaire avec blit=True).
+
+7. plt.show()
+       Boucle d'affichage matplotlib (bloquante jusqu'à fermeture de la
+       fenêtre).
+
+8. Bloc finally — arrêt propre :
+       device.stop_flag = True            -> stoppe la boucle d'acquisition,
+       acquisition_thread.join(timeout=2) -> attend la fin du thread,
+       device.stop()                      -> stoppe le device côté PLUX,
+       device.close()                     -> ferme la connexion BT/USB,
+       del animation                      -> libère la FuncAnimation.
+
+
+--------------------------------------------------------------------------------
+2.4  Point d'entrée
+--------------------------------------------------------------------------------
+if __name__ == "__main__":
+    exampleAcquisition(*sys.argv[1:])
+        Permet de surcharger les paramètres depuis la ligne de commande,
+        par exemple :
+            python OneBITalinoAcquisitionExample.py BTH98:D3:51:FE:87:0E 1000
+
+
+================================================================================
+                                  FIN
+================================================================================

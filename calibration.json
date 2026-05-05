@@ -1,0 +1,27 @@
+{
+  "address": "BTH98:D3:51:FE:87:0E",
+  "frequency": 1000,
+  "ports": {
+    "x": 1,
+    "y": 2,
+    "z": 5
+  },
+  "rest": {
+    "x": 494.26804812834223,
+    "y": 518.4308155080214,
+    "z": 0
+  },
+  "range": {
+    "x_min": 13,
+    "x_max": 862,
+    "y_min": 294,
+    "y_max": 822
+  },
+  "dead_zone": 0.3,
+  "mapping": {
+    "left": "x < x_rest - dead_zone * (x_rest - x_min)",
+    "right": "x > x_rest + dead_zone * (x_max - x_rest)",
+    "up": "y > y_rest + dead_zone * (y_max - y_rest)",
+    "down": "y < y_rest - dead_zone * (y_rest - y_min)"
+  }
+}
