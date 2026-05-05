@@ -1,5 +1,10 @@
 import platform
 import sys
+import threading
+from collections import deque
+
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 osDic = {
     "Darwin": f"MacOS/Intel{''.join(platform.python_version().split('.')[:2])}",
@@ -32,11 +37,15 @@ class NewDevice(plux.SignalsDev):
     def __init__(self, address):
         plux.SignalsDev.__init__(address)
         self.frequency = 0
+        self.buffers = []
+        self.lock = threading.Lock()
+        self.stop_flag = False
 
     def onRawFrame(self, nSeq, data):  # onRawFrame takes three arguments
-        if nSeq % 2000 == 0:
-            print(nSeq, *data)
-        return False  # never stop; interrupted by Ctrl+C
+        with self.lock:
+            for buf, value in zip(self.buffers, data):
+                buf.append(value)
+        return self.stop_flag
 
 
 # example routines
@@ -46,22 +55,55 @@ def exampleAcquisition(
     address="BTH98:D3:51:FE:87:0E",
     frequency=1000,
     active_ports=[1, 2, 3, 4, 5, 6],
+    window_seconds=5,
 ):
     """
-    Example acquisition. Runs indefinitely until Ctrl+C.
+    Example acquisition. Runs indefinitely and plots the 6 ports until window is closed.
     """
     device = NewDevice(address)
-    device.frequency = int(frequency)  # Samples per second.
+    device.frequency = int(frequency)
+    window_size = device.frequency * int(window_seconds)
+    device.buffers = [deque([0] * window_size, maxlen=window_size) for _ in active_ports]
 
-    # Trigger the start of the data recording: https://www.downloads.plux.info/apis/PLUX-API-Python-Docs/classplux_1_1_signals_dev.html#a028eaf160a20a53b3302d1abd95ae9f1
     device.start(device.frequency, active_ports, 16)
+
+    acquisition_thread = threading.Thread(target=device.loop, daemon=True)
+    acquisition_thread.start()
+
+    fig, axes = plt.subplots(len(active_ports), 1, sharex=True, figsize=(10, 8))
+    if len(active_ports) == 1:
+        axes = [axes]
+    fig.suptitle(f"BITalino — {device.frequency} Hz")
+
+    x = list(range(window_size))
+    lines = []
+    for ax, port in zip(axes, active_ports):
+        (line,) = ax.plot(x, [0] * window_size)
+        ax.set_ylabel(f"Port {port}")
+        ax.set_ylim(0, 1024)
+        ax.grid(True)
+        lines.append(line)
+    axes[-1].set_xlabel(f"Échantillons (fenêtre = {window_seconds} s)")
+
+    def update(_frame):
+        with device.lock:
+            snapshots = [list(buf) for buf in device.buffers]
+        for line, data in zip(lines, snapshots):
+            line.set_ydata(data)
+        return lines
+
+    animation = FuncAnimation(fig, update, interval=50, blit=True, cache_frame_data=False)
+
     try:
-        device.loop()  # calls device.onRawFrame until it returns True
+        plt.show()
     except KeyboardInterrupt:
         pass
     finally:
+        device.stop_flag = True
+        acquisition_thread.join(timeout=2)
         device.stop()
         device.close()
+        del animation
 
 
 if __name__ == "__main__":
