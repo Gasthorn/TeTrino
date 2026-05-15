@@ -210,6 +210,61 @@ class InputHandler:
 
 
 # ─────────────────────────────────────────────
+#  INPUT HANDLER  (point d'entrée BITalino)
+# ─────────────────────────────────────────────
+class InputHandlerBitalino:
+    """
+    Centralise tous les contrôles du jeu.
+    Pour intégrer BITalino : remplacez / complétez les méthodes
+    get_* par les lectures de vos capteurs.
+
+    Exemple d'intégration future :
+        def get_move(self):
+            emg_left  = bitalino.read_channel(0)
+            emg_right = bitalino.read_channel(1)
+            if emg_left  > THRESHOLD: return -1
+            if emg_right > THRESHOLD: return  1
+            return 0
+    """
+
+    def __init__(self):
+        self._keys = {}
+
+    def update(self, events):
+        """Appeler une fois par frame avec la liste des events pygame."""
+        self._events = events
+        self._keys   = pygame.key.get_pressed()
+
+    # ── Actions ponctuelles (appui unique) ──────────────────────────
+    def action_rotate(self) -> bool:
+        return any(e.type == pygame.KEYDOWN and e.key == # pygame.K_UP
+                   for e in self._events)
+
+    def action_hard_drop(self) -> bool:
+        return any(e.type == pygame.KEYDOWN and e.key == # pygame.K_SPACE
+                   for e in self._events)
+
+    def action_pause(self) -> bool:
+        return any(e.type == pygame.KEYDOWN and e.key == # pygame.K_p
+                   for e in self._events)
+
+    def action_restart(self) -> bool:
+        return any(e.type == pygame.KEYDOWN and e.key == # pygame.K_r
+                   for e in self._events)
+
+    # ── Actions continues (maintien touche) ──────────────────────────
+    def get_move(self) -> int:
+        """Retourne -1 (gauche), +1 (droite), 0 (rien)."""
+        if self._keys[# pygame.K_LEFT]:  return -1
+        if self._keys[# pygame.K_RIGHT]: return  1
+        return 0
+
+    def get_soft_drop(self) -> bool:
+        """True si la descente rapide est demandée."""
+        return bool(self._keys[# pygame.K_DOWN])
+
+
+# ─────────────────────────────────────────────
 #  JEU PRINCIPAL
 # ─────────────────────────────────────────────
 class Tetris:
